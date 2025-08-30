@@ -41,7 +41,6 @@ async function logActivity(action, details) {
     });
 }
 
-// NOVA FUNÇÃO DE VALIDAÇÃO DE EMAIL
 function isValidEmail(email) {
     const re = /^(([^<>()\[\]\\.,;:\s@"]+(\.[^<>()\[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/;
     return re.test(String(email).toLowerCase());
@@ -87,17 +86,38 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     function renderInitialLayout() {
-        if (!layoutMesasGlobal) return;
+        if (!layoutMesasGlobal || Object.keys(layoutMesasGlobal).length === 0) {
+            return;
+        }
+        
         const secoes = { esq: document.getElementById('col-esq'), cen: document.getElementById('col-cen'), dir: document.getElementById('col-dir') };
+        
         Object.values(secoes).forEach(sec => { if (sec) sec.innerHTML = ''; });
-        for (const colId in layoutMesasGlobal) {
+    
+        const getColumnWeight = (columnId) => {
+            if (columnId.startsWith('col-esq')) return 1;
+            if (columnId.startsWith('col-cen')) return 2;
+            if (columnId.startsWith('col-dir')) return 3;
+            return 4;
+        };
+    
+        const sortedColumnKeys = Object.keys(layoutMesasGlobal).sort((a, b) => {
+            const weightA = getColumnWeight(a);
+            const weightB = getColumnWeight(b);
+            if (weightA !== weightB) { return weightA - weightB; }
+            return a.localeCompare(b);
+        });
+    
+        sortedColumnKeys.forEach(colId => {
             let secaoAlvo = null;
             if (colId.startsWith('col-esq')) secaoAlvo = secoes.esq;
             else if (colId.startsWith('col-cen')) secaoAlvo = secoes.cen;
             else if (colId.startsWith('col-dir')) secaoAlvo = secoes.dir;
+            
             if (secaoAlvo) {
                 const colunaDiv = document.createElement('div');
                 colunaDiv.classList.add('coluna-mesas');
+                colunaDiv.dataset.columnId = colId;
                 (layoutMesasGlobal[colId] || []).forEach(mesaNum => {
                     const mesaDiv = document.createElement('div');
                     mesaDiv.className = 'mesa';
@@ -107,7 +127,21 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
                 secaoAlvo.appendChild(colunaDiv);
             }
+        });
+        
+        const oldDivider = document.querySelector('.layout-divider');
+        if (oldDivider) {
+            oldDivider.remove();
         }
+    
+        const targetColumn = document.querySelector('.coluna-mesas[data-column-id="col-esq-1"]');
+    
+        if (targetColumn) {
+            const divider = document.createElement('div');
+            divider.className = 'layout-divider';
+            targetColumn.parentNode.insertBefore(divider, targetColumn);
+        }
+    
         isInitialLayoutRendered = true;
         updateMesasView();
         loadingOverlay.style.display = 'none';
