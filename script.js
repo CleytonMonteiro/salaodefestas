@@ -292,7 +292,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const nome = elements.nomeCompletoInput.value.trim();
         const status = elements.statusMesaSelect.value;
         const email = document.getElementById('email-mesa').value.trim();
-
+    
         if (status === 'vendida') {
             if (!email) {
                 Toastify({ text: "O e-mail é obrigatório para mesas vendidas.", duration: 3000, backgroundColor: "#dc3545" }).showToast();
@@ -303,8 +303,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
         }
-
-        const mesaAntes = mesasDataGlobal[mesaNum] || { status: 'livre' };
+    
+        const mesaAntes = mesasDataGlobal[mesaNum] || { status: 'livre', pago: false };
         const mesaDataParaSalvar = { 
             nome, 
             status, 
@@ -314,8 +314,9 @@ document.addEventListener('DOMContentLoaded', () => {
             pago: (status === 'vendida') ? document.getElementById('pagamento-confirmado').checked : false 
         };
         
-        if (mesaDataParaSalvar.status === 'vendida' && mesaDataParaSalvar.email && 
-            (mesaAntes.status !== 'vendida' || mesaAntes.email !== mesaDataParaSalvar.email)) {
+        if (mesaDataParaSalvar.status === 'vendida' && mesaDataParaSalvar.pago && mesaDataParaSalvar.email &&
+            !(mesaAntes.status === 'vendida' && mesaAntes.pago)) {
+            
             try {
                 const response = await fetch('https://salaodefestas.netlify.app/.netlify/functions/enviar-email', {
                     method: 'POST',
@@ -326,7 +327,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         email: mesaDataParaSalvar.email
                     }),
                 });
-
+    
                 if (!response.ok) {
                     console.error('Falha ao acionar o envio de e-mail.');
                     Toastify({
