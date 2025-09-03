@@ -550,4 +550,39 @@ document.addEventListener('DOMContentLoaded', () => {
     setInterval(() => {
         cleanupExpiredLocks();
     }, 60000);
+
+    // INÍCIO DO CÓDIGO INSERIDO
+    // Adiciona funcionalidade de zoom
+    const scrollContainer = document.querySelector('.scroll-container');
+    const zoomInBtn = document.getElementById('zoom-in-btn');
+    const zoomOutBtn = document.getElementById('zoom-out-btn');
+    const zoomResetBtn = document.getElementById('zoom-reset-btn');
+
+    let currentZoom = 1; // 1 = 100%
+    const zoomStep = 0.1; // Incremento do zoom
+
+    function updateZoom() {
+        scrollContainer.style.transform = `scale(${currentZoom})`;
+        scrollContainer.style.transformOrigin = 'center center';
+    }
+
+    if (zoomInBtn && zoomOutBtn && zoomResetBtn && scrollContainer) {
+        zoomInBtn.addEventListener('click', () => {
+            currentZoom += zoomStep;
+            updateZoom();
+        });
+
+        zoomOutBtn.addEventListener('click', () => {
+            if (currentZoom > 0.5) { // Evita que o zoom fique muito pequeno
+                currentZoom -= zoomStep;
+                updateZoom();
+            }
+        });
+
+        zoomResetBtn.addEventListener('click', () => {
+            currentZoom = 1;
+            updateZoom();
+        });
+    }
+    // FIM DO CÓDIGO INSERIDO
 });

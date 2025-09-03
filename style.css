@@ -83,6 +83,31 @@ h1 { color: #007bff; margin-bottom: 10px; }
     border-radius: 5px; /* Bordas arredondadas para um visual mais suave */
 }
 
+/* INÍCIO DO CÓDIGO INSERIDO */
+.zoom-controls {
+    margin-top: 15px;
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    align-items: center;
+    margin-bottom: 10px;
+}
+.zoom-controls button {
+    padding: 8px 12px;
+    font-size: 1.2em;
+    font-weight: bold;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    background-color: #f8f9fa;
+    color: #333;
+    cursor: pointer;
+    transition: background-color 0.2s, color 0.2s;
+}
+.zoom-controls button:hover {
+    background-color: #e2e6ea;
+}
+/* FIM DO CÓDIGO INSERIDO */
+
 /* --- REGRAS DE RESPONSIVIDADE --- */
 
 /* Para Celulares (até 767px) */
