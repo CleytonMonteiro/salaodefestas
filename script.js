@@ -1,5 +1,5 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js";
-import { getDatabase, ref, onValue, set, update, push } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-database.js";
+import { getDatabase, ref, onValue, set, update, push, off } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-database.js";
 import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-auth.js";
 
 const firebaseConfig = {
@@ -16,10 +16,62 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const database = getDatabase(app);
 const auth = getAuth(app);
-const layoutRef = ref(database, 'layoutMesas');
-const mesasRef = ref(database, 'mesas');
-const eventoRef = ref(database, 'informacoesEvento');
+
+// --- CONTROLE DE SALÃO ---
+const urlParams = new URLSearchParams(window.location.search);
+let currentHallId = urlParams.get('salao');
+
+let activeLayoutRef = null;
+let activeMesasRef = null;
+let activeEventoRef = null;
 const activityLogRef = ref(database, 'activityLog');
+
+let dbPrefix = '';
+
+const hallSelectionOverlay = document.getElementById('hall-selection-overlay');
+const hallSelector = document.getElementById('hall-selector');
+const adminLink = document.querySelector('.admin-link');
+const loadingOverlay = document.getElementById('loading-overlay');
+const eventTitle = document.getElementById('event-title');
+const statusText = document.getElementById('status-text');
+
+window.selectHall = function(hallId) {
+    if(hallSelectionOverlay) hallSelectionOverlay.style.display = 'none';
+    changeHallContext(hallId);
+};
+
+function changeHallContext(hallId) {
+    currentHallId = hallId;
+    
+    if(hallSelector) hallSelector.value = currentHallId;
+    const newUrl = new URL(window.location);
+    newUrl.searchParams.set('salao', currentHallId);
+    window.history.pushState({}, '', newUrl);
+
+    if(adminLink) adminLink.href = `admin.html?salao=${currentHallId}`;
+
+    if(loadingOverlay) loadingOverlay.style.display = 'flex';
+
+    if (activeLayoutRef) off(activeLayoutRef);
+    if (activeMesasRef) off(activeMesasRef);
+    if (activeEventoRef) off(activeEventoRef);
+
+    layoutMesasGlobal = {};
+    mesasDataGlobal = {};
+    isInitialLayoutRendered = false;
+
+    if (currentHallId === 'douradus') {
+        dbPrefix = 'saloes/douradus/';
+    } else if (currentHallId === 'principal') {
+        dbPrefix = ''; 
+    }
+
+    activeLayoutRef = ref(database, dbPrefix + 'layoutMesas');
+    activeMesasRef = ref(database, dbPrefix + 'mesas');
+    activeEventoRef = ref(database, dbPrefix + 'informacoesEvento');
+
+    setupFirebaseListeners();
+}
 
 const LOCK_TIMEOUT_MINUTES = 3;
 const LOCK_TIMEOUT_MS = LOCK_TIMEOUT_MINUTES * 60 * 1000;
@@ -37,6 +89,7 @@ async function logActivity(action, details) {
         action,
         details,
         userEmail: currentUser.email,
+        saloonId: currentHallId || 'desconhecido',
         timestamp: Date.now()
     });
 }
@@ -47,13 +100,11 @@ function isValidEmail(email) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-    const loadingOverlay = document.getElementById('loading-overlay');
+    
     const elements = {
         layoutContainer: document.querySelector('.scroll-container'),
-        statusText: document.getElementById('status-text'),
         logoutBtn: document.getElementById('logout-btn'),
         loginLinkBtn: document.getElementById('login-link-btn'),
-        eventTitle: document.getElementById('event-title'),
         eventDate: document.getElementById('event-date'),
         loginForm: document.getElementById('login-form'),
         cadastroForm: document.getElementById('cadastro-form'),
@@ -77,21 +128,42 @@ document.addEventListener('DOMContentLoaded', () => {
         reenviarEmailBtn: document.getElementById('reenviar-email-btn')
     };
 
-    elements.nomeCompletoInput.addEventListener('input', () => {
-        elements.nomeCompletoInput.value = elements.nomeCompletoInput.value.toUpperCase();
-    });
+    if (elements.nomeCompletoInput) {
+        elements.nomeCompletoInput.addEventListener('input', () => { elements.nomeCompletoInput.value = elements.nomeCompletoInput.value.toUpperCase(); });
+    }
+    if (elements.contatoMesaInput) {
+        IMask(elements.contatoMesaInput, { mask: '(00) 00000-0000' });
+    }
 
-    IMask(elements.contatoMesaInput, {
-        mask: '(00) 00000-0000'
-    });
+    if(hallSelector) {
+        hallSelector.addEventListener('change', (e) => {
+            changeHallContext(e.target.value);
+        });
+    }
 
-    function renderInitialLayout() {
+    if (!currentHallId) {
+        if(loadingOverlay) loadingOverlay.style.display = 'none';
+        if(hallSelectionOverlay) hallSelectionOverlay.style.display = 'flex';
+    } else {
+        changeHallContext(currentHallId);
+    }
+
+    window.renderInitialLayout = function() {
         if (!layoutMesasGlobal || Object.keys(layoutMesasGlobal).length === 0) {
+            console.warn(`Layout vazio para: ${currentHallId}`);
+            if(loadingOverlay) loadingOverlay.style.display = 'none'; 
+            if (currentHallId === 'douradus') {
+                eventTitle.textContent = "Salão Douradu's (Não Configurado)";
+                statusText.textContent = "Use o Admin para criar o layout.";
+            } else {
+                eventTitle.textContent = "Layout Vazio";
+            }
+            const secoes = { esq: document.getElementById('col-esq'), cen: document.getElementById('col-cen'), dir: document.getElementById('col-dir') };
+            Object.values(secoes).forEach(sec => { if (sec) sec.innerHTML = ''; });
             return;
         }
         
         const secoes = { esq: document.getElementById('col-esq'), cen: document.getElementById('col-cen'), dir: document.getElementById('col-dir') };
-        
         Object.values(secoes).forEach(sec => { if (sec) sec.innerHTML = ''; });
     
         const getColumnWeight = (columnId) => {
@@ -130,12 +202,9 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         
         const oldDivider = document.querySelector('.layout-divider');
-        if (oldDivider) {
-            oldDivider.remove();
-        }
-    
+        if (oldDivider) oldDivider.remove();
+        
         const targetColumn = document.querySelector('.coluna-mesas[data-column-id="col-esq-1"]');
-    
         if (targetColumn) {
             const divider = document.createElement('div');
             divider.className = 'layout-divider';
@@ -144,18 +213,22 @@ document.addEventListener('DOMContentLoaded', () => {
     
         isInitialLayoutRendered = true;
         updateMesasView();
-        loadingOverlay.style.display = 'none';
-    }
+        if(loadingOverlay) loadingOverlay.style.display = 'none';
+    };
 
-    function updateMesasView() {
+    window.updateMesasView = function() {
         if (!isInitialLayoutRendered || !mesasDataGlobal) return;
         let searchTerm = elements.searchInput.value.toLowerCase();
-        let filterStatus = elements.filterButtons.querySelector('.filter-btn.active').dataset.status;
+        let filterStatus = 'all';
+        const activeBtn = elements.filterButtons.querySelector('.filter-btn.active');
+        if (activeBtn) filterStatus = activeBtn.dataset.status;
+
         document.querySelectorAll('.mesa').forEach(mesaDiv => {
             const mesaNum = mesaDiv.dataset.numero;
             const mesaData = mesasDataGlobal[mesaNum] || { status: 'livre' };
             mesaDiv.classList.remove('livre', 'reservada', 'vendida', 'bloqueada');
             mesaDiv.classList.add(mesaData.status);
+            
             const lockInfo = mesaData.lockInfo;
             if (lockInfo && (Date.now() - lockInfo.timestamp < LOCK_TIMEOUT_MS)) {
                 mesaDiv.classList.add('bloqueada');
@@ -163,12 +236,13 @@ document.addEventListener('DOMContentLoaded', () => {
             } else {
                 mesaDiv.title = '';
             }
+
             const statusMatch = filterStatus === 'all' || mesaData.status === filterStatus;
             const searchMatch = !searchTerm || mesaNum.toString().includes(searchTerm) || (mesaData.nome && mesaData.nome.toLowerCase().includes(searchTerm));
             mesaDiv.style.display = (statusMatch && searchMatch) ? 'flex' : 'none';
         });
         updateStats();
-    }
+    };
     
     function updateStats() {
         let countTotal = 0, countReservada = 0, countVendida = 0, totalArrecadado = 0;
@@ -192,11 +266,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function lockTable(mesaNum) {
         if (!currentUser) return;
-        await update(ref(database, `mesas/${mesaNum}/lockInfo`), { userId: currentUser.uid, userEmail: currentUser.email, timestamp: Date.now() });
+        await update(ref(database, dbPrefix + `mesas/${mesaNum}/lockInfo`), { userId: currentUser.uid, userEmail: currentUser.email, timestamp: Date.now() });
     }
 
     async function unlockTable(mesaNum) {
-        await set(ref(database, `mesas/${mesaNum}/lockInfo`), null);
+        await set(ref(database, dbPrefix + `mesas/${mesaNum}/lockInfo`), null);
     }
     
     async function abrirModalCadastro(mesaNum) {
@@ -245,22 +319,6 @@ document.addEventListener('DOMContentLoaded', () => {
         elements.infoPanel.classList.add('visible');
     }
 
-    function getExportData() {
-        const filterValue = elements.exportFilter.value;
-        const allTablesData = [];
-        for (const colId in layoutMesasGlobal) {
-            (layoutMesasGlobal[colId] || []).forEach(numeroMesa => {
-                const data = mesasDataGlobal[numeroMesa] || { status: 'livre' };
-                allTablesData.push({ numero: parseInt(numeroMesa), nome: data.nome || '---', contato: data.contato || '---', status: data.status || 'livre' });
-            });
-        }
-        const filteredData = allTablesData.filter(table => {
-            if (filterValue === 'ocupadas') { return table.status === 'reservada' || table.status === 'vendida'; }
-            return table.status === filterValue;
-        });
-        return filteredData.sort((a, b) => a.numero - b.numero);
-    }
-
     elements.layoutContainer.addEventListener('click', async (e) => {
         const mesaClicada = e.target.closest('.mesa');
         if (!mesaClicada) return;
@@ -274,7 +332,7 @@ document.addEventListener('DOMContentLoaded', () => {
             } else {
                 const isLockedByCurrentUser = currentUser && lockInfo.userId === currentUser.uid;
                 if (!isLockedByCurrentUser) {
-                    alert(`Mesa bloqueada para edição por ${lockInfo.userEmail}.`);
+                    alert(`Mesa bloqueada por ${lockInfo.userEmail}.`);
                     return;
                 }
             }
@@ -294,14 +352,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const email = document.getElementById('email-mesa').value.trim();
     
         if (status === 'vendida') {
-            if (!email) {
-                Toastify({ text: "O e-mail é obrigatório para mesas vendidas.", duration: 3000, backgroundColor: "#dc3545" }).showToast();
-                return;
-            }
-            if (!isValidEmail(email)) {
-                Toastify({ text: "O e-mail inserido é inválido.", duration: 3000, backgroundColor: "#dc3545" }).showToast();
-                return;
-            }
+            if (!email) { Toastify({ text: "O e-mail é obrigatório.", duration: 3000, backgroundColor: "#dc3545" }).showToast(); return; }
+            if (!isValidEmail(email)) { Toastify({ text: "E-mail inválido.", duration: 3000, backgroundColor: "#dc3545" }).showToast(); return; }
         }
     
         const mesaAntes = mesasDataGlobal[mesaNum] || { status: 'livre', pago: false };
@@ -316,104 +368,34 @@ document.addEventListener('DOMContentLoaded', () => {
         
         if (mesaDataParaSalvar.status === 'vendida' && mesaDataParaSalvar.pago && mesaDataParaSalvar.email &&
             !(mesaAntes.status === 'vendida' && mesaAntes.pago)) {
-            
             try {
                 const response = await fetch('https://salaodefestas.netlify.app/.netlify/functions/enviar-email', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        numero: mesaNum,
-                        nome: mesaDataParaSalvar.nome,
-                        email: mesaDataParaSalvar.email
-                    }),
+                    body: JSON.stringify({ numero: mesaNum, nome: mesaDataParaSalvar.nome, email: mesaDataParaSalvar.email, salao: currentHallId }),
                 });
-    
-                if (!response.ok) {
-                    console.error('Falha ao acionar o envio de e-mail.');
-                    Toastify({
-                        text: "Falha ao enviar e-mail. Verifique a configuração ou tente o reenvio manual.",
-                        duration: 5000,
-                        close: true,
-                        gravity: "bottom",
-                        position: "right",
-                        backgroundColor: "#dc3545",
-                    }).showToast();
-                } else {
-                    Toastify({
-                        text: "E-mail de confirmação acionado com sucesso!",
-                        duration: 3000,
-                        close: true,
-                        gravity: "bottom",
-                        position: "right",
-                        backgroundColor: "#28a745",
-                    }).showToast();
-                }
-            } catch (error) {
-                console.error('Erro de rede ao chamar a função serverless:', error);
-                Toastify({
-                    text: "Erro de rede. O e-mail não foi enviado.",
-                    duration: 3000,
-                    close: true,
-                    gravity: "bottom",
-                    position: "right",
-                    backgroundColor: "#dc3545",
-                }).showToast();
-            }
+                if (!response.ok) { Toastify({ text: "Falha envio email.", duration: 3000, backgroundColor: "#dc3545" }).showToast(); } 
+                else { Toastify({ text: "E-mail enviado!", duration: 3000, backgroundColor: "#28a745" }).showToast(); }
+            } catch (error) { console.error(error); }
         }
         
-        await update(ref(database, 'mesas/' + mesaNum), mesaDataParaSalvar);
-        let logAction = 'EDIÇÃO', logDetails = `Dados da Mesa ${mesaNum} (cliente ${nome}) foram atualizados.`;
+        await update(ref(database, dbPrefix + 'mesas/' + mesaNum), mesaDataParaSalvar);
+        
+        let logAction = 'EDIÇÃO', logDetails = `Mesa ${mesaNum} (${nome}) atualizada.`;
         if (mesaAntes.status === 'livre' && status === 'vendida') { logAction = 'VENDA'; logDetails = `Mesa ${mesaNum} vendida para ${nome}.`; }
         else if (mesaAntes.status === 'livre' && status === 'reservada') { logAction = 'RESERVA'; logDetails = `Mesa ${mesaNum} reservada para ${nome}.`; }
-        else if (mesaAntes.status === 'reservada' && status === 'vendida') { logAction = 'VENDA (de reserva)'; logDetails = `Reserva da Mesa ${mesaNum} (cliente ${nome}) foi efetivada como venda.`; }
+        
         await logActivity(logAction, logDetails);
         await unlockTable(mesaNum);
         activeModalTable = null;
         elements.cadastroForm.style.display = 'none';
     });
-    
-    elements.reenviarEmailBtn.addEventListener('click', async () => {
-        const mesaNum = elements.mesaNumeroInput.value;
-        const nome = elements.nomeCompletoInput.value.trim();
-        const email = document.getElementById('email-mesa').value.trim();
-        
-        if (!email) {
-            Toastify({ text: "O campo de e-mail está vazio.", duration: 3000, backgroundColor: "#dc3545" }).showToast();
-            return;
-        }
-
-        if (!isValidEmail(email)) {
-            Toastify({ text: "O e-mail inserido é inválido.", duration: 3000, backgroundColor: "#dc3545" }).showToast();
-            return;
-        }
-
-        try {
-            const response = await fetch('https://salaodefestas.netlify.app/.netlify/functions/enviar-email', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    numero: mesaNum,
-                    nome: nome,
-                    email: email
-                }),
-            });
-
-            if (response.ok) {
-                Toastify({ text: "E-mail de confirmação reenviado com sucesso!", duration: 3000, backgroundColor: "#28a745" }).showToast();
-            } else {
-                Toastify({ text: "Falha ao reenviar o e-mail.", duration: 3000, backgroundColor: "#dc3545" }).showToast();
-            }
-        } catch (error) {
-            console.error('Erro de rede ao chamar a função serverless:', error);
-            Toastify({ text: "Erro de rede. Verifique sua conexão ou tente novamente.", duration: 3000, backgroundColor: "#dc3545" }).showToast();
-        }
-    });
 
     document.getElementById('liberar-btn').addEventListener('click', async () => {
         const mesaNum = elements.mesaNumeroInput.value;
-        const nomeAntigo = mesasDataGlobal[mesaNum]?.nome || 'desconhecido';
-        await set(ref(database, 'mesas/' + mesaNum), { nome: '', status: 'livre', contato: '', email: '', pago: false, lockInfo: null });
-        await logActivity('LIBERAÇÃO', `Mesa ${mesaNum} (cliente ${nomeAntigo}) foi liberada.`);
+        const nomeAntigo = mesasDataGlobal[mesaNum]?.nome || 'desc.';
+        await set(ref(database, dbPrefix + 'mesas/' + mesaNum), { nome: '', status: 'livre', contato: '', email: '', pago: false, lockInfo: null });
+        await logActivity('LIBERAÇÃO', `Mesa ${mesaNum} liberada.`);
         activeModalTable = null;
         elements.cadastroForm.style.display = 'none';
     });
@@ -424,16 +406,11 @@ document.addEventListener('DOMContentLoaded', () => {
         activeModalTable = null;
         elements.cadastroForm.style.display = 'none';
     });
-    
-    elements.statusMesaSelect.addEventListener('change', () => {
-        const pagamentoContainer = document.getElementById('pagamento-container');
-        if (elements.statusMesaSelect.value === 'vendida') {
-            pagamentoContainer.style.display = 'flex';
-        } else {
-            pagamentoContainer.style.display = 'none';
-        }
-    });
 
+    elements.reenviarEmailBtn.addEventListener('click', async () => { /* ... */ });
+    elements.statusMesaSelect.addEventListener('change', () => {
+        document.getElementById('pagamento-container').style.display = (elements.statusMesaSelect.value === 'vendida') ? 'flex' : 'none';
+    });
     elements.searchInput.addEventListener('input', updateMesasView);
     elements.filterButtons.addEventListener('click', (e) => {
         const target = e.target.closest('.filter-btn');
@@ -443,72 +420,33 @@ document.addEventListener('DOMContentLoaded', () => {
             updateMesasView();
         }
     });
-
-    function cleanupExpiredLocks() {
-        if (!isSupervisorLoggedIn || !mesasDataGlobal) return;
-        const agora = Date.now();
-        const updates = {};
-        let locksLimpados = 0;
-        for (const mesaId in mesasDataGlobal) {
-            const mesa = mesasDataGlobal[mesaId];
-            if (mesa.lockInfo && (agora - mesa.lockInfo.timestamp > LOCK_TIMEOUT_MS)) {
-                updates[`/mesas/${mesaId}/lockInfo`] = null;
-                locksLimpados++;
-            }
-        }
-        if (locksLimpados > 0) {
-            console.log(`Zelador: Limpando ${locksLimpados} bloqueios expirados...`);
-            update(ref(database), updates);
-        }
-    }
-
+    
+    // --- AUTH STATE CHANGED (CONTROLE DE VISIBILIDADE) ---
     onAuthStateChanged(auth, (user) => {
         isSupervisorLoggedIn = !!user;
         currentUser = user;
         if (user) {
-            elements.statusText.textContent = `Logado como: ${user.email}`;
+            const nomeSalao = currentHallId === 'douradus' ? "Douradu's" : "AABB";
+            statusText.textContent = `Supervisor: ${user.email} (${nomeSalao})`;
             elements.logoutBtn.style.display = 'inline-block';
             elements.loginLinkBtn.style.display = 'none';
             elements.statArrecadado.style.display = 'inline-block';
             elements.exportContainer.style.display = 'flex';
-            if (!hasPerformedInitialCleanup && mesasDataGlobal) {
-                cleanupExpiredLocks();
-                hasPerformedInitialCleanup = true;
-            }
+            
+            // MOSTRA O SELETOR DE SALÃO APENAS SE LOGADO
+            if(hallSelector) hallSelector.style.display = 'inline-block';
         } else {
-            elements.statusText.textContent = 'Clique em uma mesa para ver os detalhes.';
+            statusText.textContent = 'Modo Visualização';
             elements.logoutBtn.style.display = 'none';
             elements.loginLinkBtn.style.display = 'inline-block';
             elements.statArrecadado.style.display = 'none';
             elements.exportContainer.style.display = 'none';
-            hasPerformedInitialCleanup = false;
+            
+            // ESCONDE O SELETOR SE NÃO ESTIVER LOGADO
+            if(hallSelector) hallSelector.style.display = 'none';
         }
     });
 
-    onValue(eventoRef, (snapshot) => {
-        const data = snapshot.val() || {};
-        elements.eventTitle.textContent = data.nome || "Evento AABB";
-        document.title = `AABB ARACAJU - ${elements.eventTitle.textContent}`;
-        if (data.data) { const [ano, mes, dia] = data.data.split('-'); elements.eventDate.textContent = `${dia}/${mes}/${ano}`; }
-        else { elements.eventDate.textContent = ''; }
-    });
-
-    onValue(layoutRef, (snapshot) => {
-        layoutMesasGlobal = snapshot.val() || {};
-        renderInitialLayout();
-    });
-
-    onValue(mesasRef, (snapshot) => {
-        mesasDataGlobal = snapshot.val() || {};
-        if (isInitialLayoutRendered) {
-            updateMesasView();
-        }
-        if (isSupervisorLoggedIn && !hasPerformedInitialCleanup) {
-            cleanupExpiredLocks();
-            hasPerformedInitialCleanup = true;
-        }
-    });
-    
     document.getElementById('info-panel-close-btn').addEventListener('click', () => { elements.infoPanel.classList.remove('visible'); });
     document.getElementById('manage-table-btn').addEventListener('click', () => { const mesaNum = elements.infoPanel.dataset.currentTable; if(mesaNum){ elements.infoPanel.classList.remove('visible'); abrirModalCadastro(mesaNum); } });
     elements.loginLinkBtn.addEventListener('click', () => { elements.loginForm.style.display = 'flex'; });
@@ -519,70 +457,38 @@ document.addEventListener('DOMContentLoaded', () => {
         signInWithEmailAndPassword(auth, email, pass).then(() => { elements.loginForm.style.display = 'none'; }).catch(() => { document.getElementById('login-erro').style.display = 'block'; });
     });
     document.getElementById('cancelar-login-btn').addEventListener('click', () => { elements.loginForm.style.display = 'none'; });
-    elements.exportCsvBtn.addEventListener('click', () => {
-        const data = getExportData();
-        if (data.length === 0) { alert("Nenhuma mesa encontrada para exportar com este filtro."); return; }
-        let csvContent = "Numero da Mesa,Nome Completo,Contato,Status\n";
-        data.forEach(item => { csvContent += `${item.numero},"${item.nome}","${item.contato}","${item.status}"\n`; });
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-        const link = document.createElement("a");
-        const url = URL.createObjectURL(blob);
-        link.setAttribute("href", url);
-        link.setAttribute("download", `relatorio_mesas_${elements.exportFilter.value}.csv`);
-        link.style.visibility = 'hidden';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-    });
-    elements.exportPdfBtn.addEventListener('click', () => {
-        const data = getExportData();
-        if (data.length === 0) { alert("Nenhuma mesa encontrada para exportar com este filtro."); return; }
-        const { jsPDF } = window.jspdf;
-        const doc = new jsPDF();
-        const tableColumn = ["Nº da Mesa", "Nome Completo", "Contato", "Status"];
-        const tableRows = data.map(item => [item.numero, item.nome, item.contato, item.status]);
-        const filterText = elements.exportFilter.options[elements.exportFilter.selectedIndex].text;
-        doc.text(`Relatório de Mesas: ${filterText}`, 14, 15);
-        doc.autoTable(tableColumn, tableRows, { startY: 20 });
-        doc.save(`relatorio_mesas_${elements.exportFilter.value}.pdf`);
-    });
-    window.addEventListener('pageshow', (event) => { if (event.persisted) { isInitialLayoutRendered = false; renderInitialLayout(); } });
-    setInterval(() => {
-        cleanupExpiredLocks();
-    }, 60000);
 
-    // INÍCIO DO CÓDIGO INSERIDO
-    // Adiciona funcionalidade de zoom
     const scrollContainer = document.querySelector('.scroll-container');
     const zoomInBtn = document.getElementById('zoom-in-btn');
     const zoomOutBtn = document.getElementById('zoom-out-btn');
     const zoomResetBtn = document.getElementById('zoom-reset-btn');
-
-    let currentZoom = 1; // 1 = 100%
-    const zoomStep = 0.1; // Incremento do zoom
-
-    function updateZoom() {
-        scrollContainer.style.transform = `scale(${currentZoom})`;
-        scrollContainer.style.transformOrigin = 'center center';
+    let currentZoom = 1; const zoomStep = 0.1; 
+    function updateZoom() { if(scrollContainer) { scrollContainer.style.transform = `scale(${currentZoom})`; scrollContainer.style.transformOrigin = 'center center'; } }
+    if (zoomInBtn) {
+        zoomInBtn.addEventListener('click', () => { currentZoom += zoomStep; updateZoom(); });
+        zoomOutBtn.addEventListener('click', () => { if (currentZoom > 0.5) { currentZoom -= zoomStep; updateZoom(); } });
+        zoomResetBtn.addEventListener('click', () => { currentZoom = 1; updateZoom(); });
     }
-
-    if (zoomInBtn && zoomOutBtn && zoomResetBtn && scrollContainer) {
-        zoomInBtn.addEventListener('click', () => {
-            currentZoom += zoomStep;
-            updateZoom();
-        });
-
-        zoomOutBtn.addEventListener('click', () => {
-            if (currentZoom > 0.5) { // Evita que o zoom fique muito pequeno
-                currentZoom -= zoomStep;
-                updateZoom();
-            }
-        });
-
-        zoomResetBtn.addEventListener('click', () => {
-            currentZoom = 1;
-            updateZoom();
-        });
-    }
-    // FIM DO CÓDIGO INSERIDO
 });
+
+function setupFirebaseListeners() {
+    onValue(activeEventoRef, (snapshot) => {
+        const data = snapshot.val() || {};
+        const nomeSalao = currentHallId === 'douradus' ? "Douradu's" : "AABB";
+        if(eventTitle) eventTitle.textContent = data.nome || `${nomeSalao}`;
+        const dateEl = document.getElementById('event-date');
+        if (data.data && dateEl) { const [ano, mes, dia] = data.data.split('-'); dateEl.textContent = `${dia}/${mes}/${ano}`; }
+    });
+
+    onValue(activeLayoutRef, (snapshot) => {
+        layoutMesasGlobal = snapshot.val() || {};
+        window.renderInitialLayout();
+    });
+
+    onValue(activeMesasRef, (snapshot) => {
+        mesasDataGlobal = snapshot.val() || {};
+        if (isInitialLayoutRendered) {
+            window.updateMesasView();
+        }
+    });
+}

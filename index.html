@@ -3,24 +3,52 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AABB ARACAJU</title>
+    <title>Gestão de Mesas</title>
     <link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
+    <div id="hall-selection-overlay" style="display: none;">
+        <div class="selection-container">
+            <h2>Bem-vindo!</h2>
+            <p>Selecione o salão para continuar:</p>
+            <div class="hall-options">
+                <button class="hall-card" onclick="selectHall('principal')">
+                    <i class="fas fa-building"></i>
+                    <span>Salão AABB (Principal)</span>
+                </button>
+                <button class="hall-card" onclick="selectHall('douradus')">
+                    <i class="fas fa-star"></i>
+                    <span>Salão Douradu's</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
     <div id="loading-overlay">
         <div class="spinner"></div>
-        <span>Carregando Mesas...</span>
+        <span>Carregando Sistema...</span>
     </div>
-    <h1 id="event-title">Carregando Evento...</h1>
-    <p id="event-date" class="event-date"></p>
-    <a href="admin.html" class="admin-link">Painel de Admin</a>
+
+    <header class="main-header">
+        <div class="header-top">
+            <select id="hall-selector" title="Trocar Salão" style="display: none;">
+                <option value="principal">Salão AABB</option>
+                <option value="douradus">Salão Douradu's</option>
+            </select>
+            <a href="admin.html" class="admin-link">Painel de Admin</a>
+        </div>
+        <h1 id="event-title">Carregando Evento...</h1>
+        <p id="event-date" class="event-date"></p>
+    </header>
+    
     <div id="auth-status">
         <span id="status-text"></span>
         <button id="login-link-btn" style="display: none;">Login Supervisor</button>
         <button id="logout-btn" style="display: none;">Sair</button>
     </div>
+
     <div class="search-filter-container">
         <input type="search" id="search-input" placeholder="Buscar por Nº da Mesa ou Nome...">
         <div id="filter-buttons" class="filter-buttons">
@@ -30,6 +58,7 @@
             <button class="filter-btn" data-status="vendida">Vendidas</button>
         </div>
     </div>
+
     <div id="stats-container" class="stats-container">
         <span class="stat-item">Total: <strong id="total-count">0</strong></span>
         <span class="stat-item livre">Livres: <strong id="livre-count">0</strong></span>
@@ -37,6 +66,7 @@
         <span class="stat-item vendida">Vendidas: <strong id="vendida-count">0</strong></span>
         <span id="stat-arrecadado" class="stat-item arrecadado">Arrecadado: <strong id="arrecadado-total">R$ 0,00</strong></span>
     </div>
+
     <div id="export-container" class="export-container" style="display: none;">
         <label for="export-filter">Exportar Relatório:</label>
         <select id="export-filter">
@@ -47,16 +77,19 @@
         <button id="export-csv-btn">Gerar CSV (Excel)</button>
         <button id="export-pdf-btn">Gerar PDF</button>
     </div>
+
     <div class="zoom-controls">
         <button id="zoom-in-btn">+</button>
         <button id="zoom-out-btn">-</button>
         <button id="zoom-reset-btn">100%</button>
     </div>
+
     <div class="legenda">
         <div class="legenda-item"><div class="legenda-cor" style="background-color: #28a745;"></div><span>Livre</span></div>
         <div class="legenda-item"><div class="legenda-cor" style="background-color: #ffc107;"></div><span>Reservada</span></div>
         <div class="legenda-item"><div class="legenda-cor" style="background-color: #dc3545;"></div><span>Vendida</span></div>
     </div>
+
     <div class="layout-salão">
         <div class="scroll-container">
             <div class="secao-mesas" id="col-esq"></div>
@@ -64,6 +97,7 @@
             <div class="secao-mesas" id="col-dir"></div>
         </div>
     </div>
+
     <div id="info-panel" class="info-panel">
         <button id="info-panel-close-btn" class="close-btn">&times;</button>
         <h3>Detalhes da Mesa <span id="info-panel-numero"></span></h3>
@@ -77,6 +111,7 @@
         </div>
         <button id="manage-table-btn">Gerenciar Mesa</button>
     </div>
+
     <div id="login-form" class="modal">
         <h2>Login do Supervisor</h2>
         <label for="login-email">E-mail:</label>
@@ -89,28 +124,36 @@
             <button id="cancelar-login-btn" class="voltar-btn">Cancelar</button>
         </div>
     </div>
+
     <div id="cadastro-form" class="modal">
         <h2 id="modal-titulo">Gerenciar Mesa <span id="modal-numero-mesa"></span></h2>
         <input type="hidden" id="mesa-numero">
+        
         <label for="nome-completo">Nome Completo:</label>
         <input type="text" id="nome-completo" required>
         <span id="nome-erro" class="mensagem-erro">O nome é obrigatório.</span>
+        
         <label for="preco-mesa">Preço (R$):</label>
         <input type="number" id="preco-mesa" step="0.01" min="0">
+        
         <label for="contato-mesa">Nº de Contato:</label>
         <input type="tel" id="contato-mesa">
+        
         <label for="email-mesa">E-mail:</label>
         <input type="email" id="email-mesa">
+        
         <label for="status-mesa">Status:</label>
         <select id="status-mesa">
             <option value="livre">Livre</option>
             <option value="reservada">Reservada</option>
             <option value="vendida">Vendida</option>
         </select>
+        
         <div id="pagamento-container" class="checkbox-container">
             <input type="checkbox" id="pagamento-confirmado">
             <label for="pagamento-confirmado">Pagamento Confirmado?</label>
         </div>
+        
         <div class="botoes-form">
             <button id="liberar-btn" class="liberar-btn">Liberar Mesa</button>
             <button id="salvar-btn">Salvar</button>
@@ -118,6 +161,7 @@
             <button id="reenviar-email-btn" style="display: none;">Reenviar E-mail</button>
         </div>
     </div>
+
     <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
     <script src="https://unpkg.com/imask"></script>
     <script src="https://unpkg.com/jspdf@latest/dist/jspdf.umd.min.js"></script>

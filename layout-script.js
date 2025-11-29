@@ -20,19 +20,70 @@ const defaultLayout = {
 const app = initializeApp(firebaseConfig);
 const database = getDatabase(app);
 const auth = getAuth(app);
-const layoutRef = ref(database, 'layoutMesas');
+
+// --- LÓGICA DE SELEÇÃO DE SALÃO ---
+const urlParams = new URLSearchParams(window.location.search);
+const currentHallId = urlParams.get('salao');
+let dbPrefix = ''; 
+
+// Define a pasta do banco de dados baseada na URL
+if (currentHallId === 'douradus') {
+    dbPrefix = 'saloes/douradus/';
+} else if (currentHallId === 'principal') {
+    dbPrefix = ''; 
+}
+
+// Verifica se existe um salão selecionado na URL
+const shouldLoadEditor = (currentHallId === 'principal' || currentHallId === 'douradus');
+// Só cria a referência se tiver salão, para evitar erros
+const layoutRef = shouldLoadEditor ? ref(database, dbPrefix + 'layoutMesas') : null;
+
+// Função global para os botões do overlay chamarem
+window.selectHall = function(hallId) {
+    const url = new URL(window.location);
+    url.searchParams.set('salao', hallId);
+    window.location.href = url.toString();
+};
 
 document.addEventListener('DOMContentLoaded', () => {
+    const hallSelectionOverlay = document.getElementById('hall-selection-overlay');
     const editorContainer = document.getElementById('editor-container');
     const deleteModeToggle = document.getElementById('delete-mode-toggle');
     const addColumnBtn = document.getElementById('add-column-btn');
     const addMesaBtn = document.getElementById('add-mesa-btn');
     const saveLayoutBtn = document.getElementById('save-layout-btn');
     const resetLayoutBtn = document.getElementById('reset-layout-btn');
+    const backLink = document.getElementById('back-link');
+    const editorTitle = document.getElementById('editor-title');
+
+    // --- VERIFICAÇÃO INICIAL ---
+    if (!shouldLoadEditor) {
+        // Se não tem salão na URL, mostra o overlay de seleção
+        if(hallSelectionOverlay) hallSelectionOverlay.style.display = 'flex';
+        return; // Interrompe o restante do script
+    } else {
+        // Se já tem salão, configura o título
+        const nomeSalao = currentHallId === 'douradus' ? "Douradu's" : "AABB";
+        editorTitle.textContent = `Editando: Salão ${nomeSalao}`;
+        
+        // --- CORREÇÃO DO BOTÃO VOLTAR ---
+        // Adiciona um evento de clique para forçar a navegação correta
+        if (backLink) {
+            backLink.addEventListener('click', (e) => {
+                e.preventDefault(); // Evita comportamento padrão do href="#"
+                window.location.href = `index.html?salao=${currentHallId}`;
+            });
+        }
+    }
 
     let editableLayout = {};
 
-    onAuthStateChanged(auth, (user) => { if (!user) { alert("Acesso negado."); window.location.href = 'index.html'; }});
+    onAuthStateChanged(auth, (user) => { 
+        if (!user) { 
+            alert("Acesso negado. Faça login primeiro."); 
+            window.location.href = `index.html?salao=${currentHallId || 'principal'}`; 
+        }
+    });
 
     function onDragEnd(evt) {
         const mesaNum = parseInt(evt.item.dataset.mesa);
@@ -96,7 +147,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (snapshot.exists() && Object.keys(snapshot.val()).length > 0) {
             dataFromDB = snapshot.val();
         } else {
-            dataFromDB = JSON.parse(JSON.stringify(defaultLayout));
+            // Se estiver vazio (novo salão), inicia objeto vazio
+            dataFromDB = {}; 
         }
 
         editableLayout = {};
@@ -115,9 +167,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     deleteModeToggle.addEventListener('change', (e) => { document.body.classList.toggle('delete-mode-active', e.target.checked); });
     addColumnBtn.addEventListener('click', () => {
-        // --- ALTERAÇÃO APLICADA AQUI ---
-        // Removida a função prompt() para uma experiência mais fluida.
-        // Você pode conectar este botão a um modal de sua escolha.
         const columnName = prompt("Digite o nome da nova coluna (ex: col-esq-3, palco, etc.):");
         if (columnName && !editableLayout[columnName]) {
             editableLayout[columnName] = [];
@@ -128,10 +177,9 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     
     addMesaBtn.addEventListener('click', () => {
-        // --- ALTERAÇÃO APLICADA AQUI ---
-        // Removida a função prompt() para uma experiência mais fluida.
-        // Você pode conectar este botão a um modal de sua escolha.
         const columnOptions = Object.keys(editableLayout).sort().join(', ');
+        if(!columnOptions) { alert("Crie uma coluna primeiro."); return; }
+        
         const columnId = prompt(`Em qual coluna você quer adicionar a mesa?\nOpções: ${columnOptions}`);
         if (!columnId || !editableLayout[columnId]) {
             alert("Nome de coluna inválido ou não encontrado.");
@@ -144,9 +192,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
             editableLayout[columnId].push(mesaNum);
-            // --- ALTERAÇÃO APLICADA AQUI ---
-            // Linha abaixo removida para manter a ordem manual
-            // editableLayout[columnId].sort((a,b) => a-b); 
             renderEditor();
         } else {
             alert("Número de mesa inválido.");
@@ -154,7 +199,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     resetLayoutBtn.addEventListener('click', () => {
-        if (confirm("Tem certeza que deseja descartar todas as alterações atuais e restaurar o layout padrão do salão?")) {
+        if (confirm("Tem certeza? Isso apagará o desenho atual e carregará o modelo padrão.")) {
             editableLayout = JSON.parse(JSON.stringify(defaultLayout));
             renderEditor();
         }
@@ -183,18 +228,16 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     saveLayoutBtn.addEventListener('click', () => {
-        if(confirm("Tem certeza que deseja salvar este novo layout? O antigo no banco de dados será substituído permanentemente.")) {
+        const nomeSalao = currentHallId === 'douradus' ? "Douradu's" : "AABB";
+        if(confirm(`Salvar layout para o salão ${nomeSalao}? Isso substituirá o layout online.`)) {
             for(const columnId in editableLayout) {
                 if(editableLayout[columnId].length === 0) {
                     delete editableLayout[columnId];
                 }
-                // --- ALTERAÇÃO APLICADA AQUI ---
-                // Linha abaixo removida para preservar a ordem manual
-                // editableLayout[columnId].sort((a,b) => a-b);
             }
             set(layoutRef, editableLayout)
                 .then(() => alert("Layout salvo com sucesso!"))
-                .catch((err) => alert("Erro ao salvar o layout: " + err.message));
+                .catch((err) => alert("Erro ao salvar: " + err.message));
         }
     });
 });

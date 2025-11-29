@@ -3,28 +3,55 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Editor de Layout do Salão</title>
+    <title>Editor de Layout</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <link rel="stylesheet" href="layout-style.css">
+    <style>
+        /* Estilo da Seleção de Salão (Inline para garantir funcionamento) */
+        #hall-selection-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient(135deg, #007bff 0%, #6f42c1 100%); z-index: 20000; display: flex; justify-content: center; align-items: center; }
+        .selection-container { background: white; padding: 40px; border-radius: 15px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); text-align: center; max-width: 500px; width: 90%; font-family: Arial, sans-serif; }
+        .selection-container h2 { margin-top: 0; color: #333; }
+        .hall-options { display: flex; gap: 20px; justify-content: center; margin-top: 30px; flex-wrap: wrap; }
+        .hall-card { background: #f8f9fa; border: 2px solid #ddd; border-radius: 10px; padding: 20px; width: 140px; cursor: pointer; transition: all 0.3s; display: flex; flex-direction: column; align-items: center; gap: 10px; color: #555; font-weight: bold; font-family: Arial, sans-serif; }
+        .hall-card i { font-size: 2.5em; color: #007bff; }
+        .hall-card:hover { transform: translateY(-5px); border-color: #007bff; box-shadow: 0 5px 15px rgba(0,123,255,0.2); }
+    </style>
 </head>
 <body>
+    <div id="hall-selection-overlay" style="display: none;">
+        <div class="selection-container">
+            <h2>Editor de Layout</h2>
+            <p>Qual salão você deseja editar?</p>
+            <div class="hall-options">
+                <button class="hall-card" onclick="selectHall('principal')">
+                    <i class="fas fa-building"></i>
+                    <span>Salão AABB (Principal)</span>
+                </button>
+                <button class="hall-card" onclick="selectHall('douradus')">
+                    <i class="fas fa-star"></i>
+                    <span>Salão Douradu's</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
     <header>
-        <h1>Editor de Layout do Salão</h1>
-        <p>Arraste as mesas para movê-las entre as colunas. Use a barra de ferramentas abaixo para outras ações.</p>
+        <h1 id="editor-title">Editor de Layout</h1>
+        <p>Arraste as mesas para movê-las. Use "Adicionar" para criar novas.</p>
     </header>
 
     <main>
-        <div id="editor-container" class="editor-container">
-            </div>
+        <div id="editor-container" class="editor-container"></div>
     </main>
     
     <footer class="bottom-toolbar">
-        <button id="add-column-btn" title="Adicionar Nova Coluna">Adicionar Coluna</button>
-        <button id="add-mesa-btn" title="Adicionar Nova Mesa">Adicionar Mesa</button>
-        <button id="reset-layout-btn" class="secondary-btn" title="Restaurar o Layout Padrão">Resetar Mesas</button>
+        <button id="add-column-btn" title="Adicionar Nova Coluna">Add Coluna</button>
+        <button id="add-mesa-btn" title="Adicionar Nova Mesa">Add Mesa</button>
+        <button id="reset-layout-btn" class="secondary-btn" title="Restaurar o Layout Padrão">Resetar</button>
         <button id="save-layout-btn" class="save-btn" title="Salvar o Layout no Banco de Dados">Salvar Layout</button>
-        <a href="index.html" class="nav-button" title="Voltar para o Mapa de Vendas">Ver Salão</a>
+        <a href="#" id="back-link" class="nav-button" title="Voltar para o Mapa de Vendas">Ver Salão</a>
         <div class="control-group">
-            <label class="switch-label">Modo Excluir:</label>
+            <label class="switch-label">Excluir:</label>
             <label class="switch">
                 <input type="checkbox" id="delete-mode-toggle">
                 <span class="slider round"></span>
